@@ -24,7 +24,7 @@ export class Json extends BufferedConnection {
 		this.emit("data", deserializedData);
 	}
 
-	override _send(data, _chunked) {
+	override _send(data, _chunked, reliable) {
 		const encodedData = this.encoder.encode(this.stringify(data));
 		if (encodedData.byteLength >= util.chunkedMTU) {
 			this.emitError(
@@ -33,6 +33,6 @@ export class Json extends BufferedConnection {
 			);
 			return;
 		}
-		this._bufferedSend(encodedData);
+		this._bufferedSend(encodedData, reliable);
 	}
 }

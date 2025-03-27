@@ -3,6 +3,7 @@ import { DataConnection } from "../DataConnection";
 
 export abstract class BufferedConnection extends DataConnection {
 	private _buffer: any[] = [];
+	private _bufferReliable: boolean[] = [];
 	private _bufferSize = 0;
 	private _buffering = false;
 
@@ -10,30 +11,29 @@ export abstract class BufferedConnection extends DataConnection {
 		return this._bufferSize;
 	}
 
-	public override _initializeDataChannel(dc: RTCDataChannel) {
+	public override _initializeDataChannel(dc: RTCDataChannel): void {
 		super._initializeDataChannel(dc);
 		this.dataChannel.binaryType = "arraybuffer";
-		this.dataChannel.addEventListener("message", (e) =>
-			this._handleDataMessage(e),
-		);
 	}
 
-	protected abstract _handleDataMessage(e: MessageEvent): void;
-
-	protected _bufferedSend(msg: ArrayBuffer): void {
-		if (this._buffering || !this._trySend(msg)) {
+	protected _bufferedSend(msg: ArrayBuffer, reliable: boolean): void {
+		if (this._buffering || !this._trySend(msg, reliable)) {
 			this._buffer.push(msg);
+			this._bufferReliable.push(reliable);
 			this._bufferSize = this._buffer.length;
 		}
 	}
 
 	// Returns true if the send succeeds.
-	private _trySend(msg: ArrayBuffer): boolean {
+	private _trySend(msg: ArrayBuffer, reliable: boolean): boolean {
 		if (!this.open) {
 			return false;
 		}
 
-		if (this.dataChannel.bufferedAmount > DataConnection.MAX_BUFFERED_AMOUNT) {
+		const bufferedTotal =
+			this.dataChannel.bufferedAmount + this.reliableDataChannel.bufferedAmount;
+
+		if (bufferedTotal > DataConnection.MAX_BUFFERED_AMOUNT) {
 			this._buffering = true;
 			setTimeout(() => {
 				this._buffering = false;
@@ -44,7 +44,11 @@ export abstract class BufferedConnection extends DataConnection {
 		}
 
 		try {
-			this.dataChannel.send(msg);
+			if (reliable) {
+				this.reliableDataChannel.send(msg);
+			} else {
+				this.dataChannel.send(msg);
+			}
 		} catch (e) {
 			logger.error(`DC#:${this.connectionId} Error when sending:`, e);
 			this._buffering = true;
@@ -68,9 +72,11 @@ export abstract class BufferedConnection extends DataConnection {
 		}
 
 		const msg = this._buffer[0];
+		const reliable = this._bufferReliable[0];
 
-		if (this._trySend(msg)) {
+		if (this._trySend(msg, reliable)) {
 			this._buffer.shift();
+			this._bufferReliable.shift();
 			this._bufferSize = this._buffer.length;
 			this._tryBuffer();
 		}
@@ -86,6 +92,7 @@ export abstract class BufferedConnection extends DataConnection {
 			return;
 		}
 		this._buffer = [];
+		this._bufferReliable = [];
 		this._bufferSize = 0;
 		super.close();
 	}

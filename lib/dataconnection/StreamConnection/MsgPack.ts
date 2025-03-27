@@ -21,6 +21,8 @@ export class MsgPack extends StreamConnection {
 		})();
 	}
 
+	protected _handleDataMessage(_e: MessageEvent): void {}
+
 	protected override _send(data) {
 		return this.writer.write(this._encoder.encode(data));
 	}

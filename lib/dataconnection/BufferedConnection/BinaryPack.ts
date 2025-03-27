@@ -75,35 +75,43 @@ export class BinaryPack extends BufferedConnection {
 		}
 	}
 
-	protected override _send(data: Packable, chunked: boolean) {
+	protected override _send(
+		data: Packable,
+		chunked: boolean,
+		reliable: boolean,
+	) {
+		console.log("BinaryPack._send", data, chunked, reliable);
 		const blob = pack(data);
 		if (blob instanceof Promise) {
-			return this._send_blob(blob);
+			return this._send_blob(blob, reliable);
 		}
 
 		if (!chunked && blob.byteLength > this.chunker.chunkedMTU) {
-			this._sendChunks(blob);
+			this._sendChunks(blob, reliable);
 			return;
 		}
 
-		this._bufferedSend(blob);
+		this._bufferedSend(blob, reliable);
 	}
-	private async _send_blob(blobPromise: Promise<ArrayBufferLike>) {
+	private async _send_blob(
+		blobPromise: Promise<ArrayBufferLike>,
+		reliable: boolean,
+	) {
 		const blob = await blobPromise;
 		if (blob.byteLength > this.chunker.chunkedMTU) {
-			this._sendChunks(blob);
+			this._sendChunks(blob, reliable);
 			return;
 		}
 
-		this._bufferedSend(blob);
+		this._bufferedSend(blob, reliable);
 	}
 
-	private _sendChunks(blob: ArrayBuffer) {
+	private _sendChunks(blob: ArrayBuffer, reliable: boolean) {
 		const blobs = this.chunker.chunk(blob);
 		logger.log(`DC#${this.connectionId} Try to send ${blobs.length} chunks...`);
 
 		for (const blob of blobs) {
-			this.send(blob, true);
+			this.send(blob, true, reliable);
 		}
 	}
 }

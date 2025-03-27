@@ -8,7 +8,7 @@ export class Raw extends BufferedConnection {
 		super.emit("data", data);
 	}
 
-	override _send(data, _chunked) {
-		this._bufferedSend(data);
+	override _send(data, _chunked, reliable) {
+		this._bufferedSend(data, reliable);
 	}
 }
