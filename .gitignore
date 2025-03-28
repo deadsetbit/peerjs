@@ -9,6 +9,8 @@ coverage
 *.[t]gz
 
 dist
+lib
+__test__
 pids
 logs
 results
