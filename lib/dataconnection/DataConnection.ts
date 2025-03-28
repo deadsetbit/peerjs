@@ -74,6 +74,26 @@ export abstract class DataConnection extends BaseConnection<
 				`DC#${this.connectionId} dc connection open. Waiting for reliable dc connection open...`,
 			);
 
+			// This "reliableDataChannel" is a custom hack to be able to have two data channels as PeerJS only supports one.
+			// Instead of having this "reliableDataChannel", an improvement could be allowing any number of data channels to be defined in options of peer.connect().
+			// It would allow user to define multiple data channels to be instantiated after the primary data channel is opened and negotiated.
+			// -
+			// Example:
+			// const connection = peer.connect(peerId, {
+			// 		reliable: false,
+			// 		metadata: connectMetadata,
+			// 		label: `connection_${this.connectionCounter}`,
+			// 		dataChannels: [
+			// 			{
+			// 				label: "reliable",
+			// 				dataChannelOptions: {
+			// 					ordered: true,
+			//				},
+			//			},
+			//			...
+			//		],
+			//	});
+			// });
 			this.reliableDataChannel = this.peerConnection.createDataChannel(
 				this.connectionId + "__reliable",
 				{
