@@ -102,7 +102,7 @@ export abstract class DataConnection extends BaseConnection<
 					id: this.dataChannel.id + 1,
 				},
 			);
-			this.reliableDataChannel.binaryType = "arraybuffer";
+			this.reliableDataChannel.binaryType = this.dataChannel.binaryType;
 
 			this.reliableDataChannel.onmessage = (e) => {
 				logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
