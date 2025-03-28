@@ -11,7 +11,7 @@ export abstract class BufferedConnection extends DataConnection {
 		return this._bufferSize;
 	}
 
-	public override _initializeDataChannel(dc: RTCDataChannel): void {
+	public override _initializeDataChannel(dc: RTCDataChannel) {
 		super._initializeDataChannel(dc);
 		this.dataChannel.binaryType = "arraybuffer";
 	}

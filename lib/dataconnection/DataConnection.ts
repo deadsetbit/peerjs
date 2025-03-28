@@ -70,9 +70,10 @@ export abstract class DataConnection extends BaseConnection<
 		this.dataChannel = dc;
 
 		this.dataChannel.onopen = () => {
-			logger.log(`DC#${this.connectionId} dc connection success`);
+			logger.log(
+				`DC#${this.connectionId} dc connection open. Waiting for reliable dc connection open...`,
+			);
 
-			console.log("debug - setup reliable data channel??????");
 			this.reliableDataChannel = this.peerConnection.createDataChannel(
 				this.connectionId + "__reliable",
 				{
@@ -83,16 +84,18 @@ export abstract class DataConnection extends BaseConnection<
 			);
 			this.reliableDataChannel.binaryType = "arraybuffer";
 
-			this.reliableDataChannel.addEventListener("message", (e) =>
-				this._handleDataMessage(e),
-			);
+			this.reliableDataChannel.onmessage = (e) => {
+				logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
+				this._handleDataMessage(e);
+			};
 
 			this.reliableDataChannel.onopen = () => {
-				console.log("debug - reliable data channel open");
+				logger.log(`DC#${this.connectionId} reliable dc connection open`);
 				this._open = true;
 				this.emit("open");
 			};
 			this.reliableDataChannel.onclose = () => {
+				logger.log(`DC#${this.connectionId} reliable dc connection closed`);
 				if (this._open) {
 					this.close();
 				}
@@ -159,7 +162,6 @@ export abstract class DataConnection extends BaseConnection<
 
 	/** Allows user to send data. */
 	public send(data: any, chunked = false, reliable = false) {
-		logger.log("DC#" + this.connectionId + " send:", data);
 		if (!this.open) {
 			this.emitError(
 				DataConnectionErrorType.NotOpenYet,

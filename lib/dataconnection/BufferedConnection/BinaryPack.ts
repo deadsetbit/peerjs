@@ -80,7 +80,6 @@ export class BinaryPack extends BufferedConnection {
 		chunked: boolean,
 		reliable: boolean,
 	) {
-		console.log("BinaryPack._send", data, chunked, reliable);
 		const blob = pack(data);
 		if (blob instanceof Promise) {
 			return this._send_blob(blob, reliable);
