@@ -165,6 +165,13 @@ export abstract class DataConnection extends BaseConnection<
 			this.dataChannel = null;
 		}
 
+		if (this.reliableDataChannel) {
+			this.reliableDataChannel.onopen = null;
+			this.reliableDataChannel.onmessage = null;
+			this.reliableDataChannel.onclose = null;
+			this.reliableDataChannel = null;
+		}
+
 		if (!this.open) {
 			return;
 		}
