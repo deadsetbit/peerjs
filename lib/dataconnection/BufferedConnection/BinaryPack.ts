@@ -27,7 +27,10 @@ export class BinaryPack extends BufferedConnection {
 	}
 
 	// Handles a DataChannel message.
-	protected override _handleDataMessage({ data }: { data: Uint8Array }): void {
+	protected override _handleDataMessage(
+		{ data }: { data: Uint8Array },
+		reliable: boolean,
+	): void {
 		const deserializedData = unpack(data);
 
 		// PeerJS specific message
@@ -40,19 +43,22 @@ export class BinaryPack extends BufferedConnection {
 
 			// Chunked data -- piece things back together.
 			// @ts-ignore
-			this._handleChunk(deserializedData);
+			this._handleChunk(deserializedData, reliable);
 			return;
 		}
 
-		this.emit("data", deserializedData);
+		this.emit("data", deserializedData, reliable);
 	}
 
-	private _handleChunk(data: {
-		__peerData: number;
-		n: number;
-		total: number;
-		data: ArrayBuffer;
-	}): void {
+	private _handleChunk(
+		data: {
+			__peerData: number;
+			n: number;
+			total: number;
+			data: ArrayBuffer;
+		},
+		reliable: boolean,
+	): void {
 		const id = data.__peerData;
 		const chunkInfo = this._chunkedData[id] || {
 			data: [],
@@ -71,7 +77,7 @@ export class BinaryPack extends BufferedConnection {
 			// We've received all the chunks--time to construct the complete data.
 			// const data = new Blob(chunkInfo.data);
 			const data = concatArrayBuffers(chunkInfo.data);
-			this._handleDataMessage({ data });
+			this._handleDataMessage({ data }, reliable);
 		}
 	}
 

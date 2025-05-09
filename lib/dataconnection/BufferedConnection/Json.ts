@@ -11,7 +11,10 @@ export class Json extends BufferedConnection {
 	parse: (data: string) => any = JSON.parse;
 
 	// Handles a DataChannel message.
-	protected override _handleDataMessage({ data }: { data: Uint8Array }): void {
+	protected override _handleDataMessage(
+		{ data }: { data: Uint8Array },
+		reliable: boolean,
+	): void {
 		const deserializedData = this.parse(this.decoder.decode(data));
 
 		// PeerJS specific message
@@ -21,7 +24,7 @@ export class Json extends BufferedConnection {
 			return;
 		}
 
-		this.emit("data", deserializedData);
+		this.emit("data", deserializedData, reliable);
 	}
 
 	override _send(data, _chunked, reliable) {

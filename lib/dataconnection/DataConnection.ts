@@ -18,7 +18,7 @@ export interface DataConnectionEvents
 	/**
 	 * Emitted when data is received from the remote peer.
 	 */
-	data: (data: unknown) => void;
+	data: (data: unknown, reliable: boolean) => void;
 	/**
 	 * Emitted when the connection is established and ready-to-use.
 	 */
@@ -63,7 +63,10 @@ export abstract class DataConnection extends BaseConnection<
 		);
 	}
 
-	protected abstract _handleDataMessage(e: MessageEvent): void;
+	protected abstract _handleDataMessage(
+		e: MessageEvent,
+		reliable: boolean,
+	): void;
 
 	/** Called by the Negotiator when the DataChannel is ready. */
 	override _initializeDataChannel(dc: RTCDataChannel): void {
@@ -106,7 +109,7 @@ export abstract class DataConnection extends BaseConnection<
 
 			this.reliableDataChannel.onmessage = (e) => {
 				logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
-				this._handleDataMessage(e);
+				this._handleDataMessage(e, true);
 			};
 
 			this.reliableDataChannel.onopen = () => {
@@ -124,7 +127,7 @@ export abstract class DataConnection extends BaseConnection<
 
 		this.dataChannel.onmessage = (e) => {
 			logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
-			this._handleDataMessage(e);
+			this._handleDataMessage(e, false);
 		};
 
 		this.dataChannel.onclose = () => {

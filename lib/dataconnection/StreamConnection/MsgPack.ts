@@ -16,7 +16,7 @@ export class MsgPack extends StreamConnection {
 					this.close();
 					return;
 				}
-				this.emit("data", msg);
+				this.emit("data", msg, false);
 			}
 		})();
 	}
