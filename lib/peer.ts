@@ -440,6 +440,14 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					return;
 				}
 
+				// custom message exception for ICE-SERVERS WebSocket updates
+				if (
+					message &&
+					(message as { type?: unknown })?.type === "ICE-SERVERS"
+				) {
+					return;
+				}
+
 				const connectionId = payload.connectionId;
 				const connection = this.getConnection(peerId, connectionId);
 

@@ -27,7 +27,10 @@ export class BinaryPack extends BufferedConnection {
 	}
 
 	// Handles a DataChannel message.
-	protected override _handleDataMessage({ data }: { data: Uint8Array }): void {
+	protected override _handleDataMessage(
+		{ data }: { data: Uint8Array },
+		reliable: boolean,
+	): void {
 		const deserializedData = unpack(data);
 
 		// PeerJS specific message
@@ -40,19 +43,22 @@ export class BinaryPack extends BufferedConnection {
 
 			// Chunked data -- piece things back together.
 			// @ts-ignore
-			this._handleChunk(deserializedData);
+			this._handleChunk(deserializedData, reliable);
 			return;
 		}
 
-		this.emit("data", deserializedData);
+		this.emit("data", deserializedData, reliable);
 	}
 
-	private _handleChunk(data: {
-		__peerData: number;
-		n: number;
-		total: number;
-		data: ArrayBuffer;
-	}): void {
+	private _handleChunk(
+		data: {
+			__peerData: number;
+			n: number;
+			total: number;
+			data: ArrayBuffer;
+		},
+		reliable: boolean,
+	): void {
 		const id = data.__peerData;
 		const chunkInfo = this._chunkedData[id] || {
 			data: [],
@@ -71,39 +77,46 @@ export class BinaryPack extends BufferedConnection {
 			// We've received all the chunks--time to construct the complete data.
 			// const data = new Blob(chunkInfo.data);
 			const data = concatArrayBuffers(chunkInfo.data);
-			this._handleDataMessage({ data });
+			this._handleDataMessage({ data }, reliable);
 		}
 	}
 
-	protected override _send(data: Packable, chunked: boolean) {
+	protected override _send(
+		data: Packable,
+		chunked: boolean,
+		reliable: boolean,
+	) {
 		const blob = pack(data);
 		if (blob instanceof Promise) {
-			return this._send_blob(blob);
+			return this._send_blob(blob, reliable);
 		}
 
 		if (!chunked && blob.byteLength > this.chunker.chunkedMTU) {
-			this._sendChunks(blob);
+			this._sendChunks(blob, reliable);
 			return;
 		}
 
-		this._bufferedSend(blob);
+		this._bufferedSend(blob, reliable);
 	}
-	private async _send_blob(blobPromise: Promise<ArrayBufferLike>) {
+	private async _send_blob(
+		blobPromise: Promise<ArrayBufferLike>,
+		reliable: boolean,
+	) {
 		const blob = await blobPromise;
 		if (blob.byteLength > this.chunker.chunkedMTU) {
-			this._sendChunks(blob);
+			this._sendChunks(blob, reliable);
 			return;
 		}
 
-		this._bufferedSend(blob);
+		this._bufferedSend(blob, reliable);
 	}
 
-	private _sendChunks(blob: ArrayBuffer) {
+	private _sendChunks(blob: ArrayBuffer, reliable: boolean) {
 		const blobs = this.chunker.chunk(blob);
 		logger.log(`DC#${this.connectionId} Try to send ${blobs.length} chunks...`);
 
 		for (const blob of blobs) {
-			this.send(blob, true);
+			this.send(blob, true, reliable);
 		}
 	}
 }

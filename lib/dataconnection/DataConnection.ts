@@ -1,15 +1,15 @@
-import logger from "../logger";
-import { Negotiator } from "../negotiator";
+import { BaseConnection, type BaseConnectionEvents } from "../baseconnection";
 import {
 	BaseConnectionErrorType,
 	ConnectionType,
 	DataConnectionErrorType,
 	ServerMessageType,
 } from "../enums";
+import logger from "../logger";
+import { Negotiator } from "../negotiator";
 import type { Peer } from "../peer";
-import { BaseConnection, type BaseConnectionEvents } from "../baseconnection";
-import type { ServerMessage } from "../servermessage";
 import type { EventsWithError } from "../peerError";
+import type { ServerMessage } from "../servermessage";
 import { randomToken } from "../utils/randomToken";
 
 export interface DataConnectionEvents
@@ -18,7 +18,7 @@ export interface DataConnectionEvents
 	/**
 	 * Emitted when data is received from the remote peer.
 	 */
-	data: (data: unknown) => void;
+	data: (data: unknown, reliable: boolean) => void;
 	/**
 	 * Emitted when the connection is established and ready-to-use.
 	 */
@@ -38,6 +38,7 @@ export abstract class DataConnection extends BaseConnection<
 	private _negotiator: Negotiator<DataConnectionEvents, this>;
 	abstract readonly serialization: string;
 	readonly reliable: boolean;
+	protected reliableDataChannel: RTCDataChannel;
 
 	public get type() {
 		return ConnectionType.Data;
@@ -62,19 +63,71 @@ export abstract class DataConnection extends BaseConnection<
 		);
 	}
 
+	protected abstract _handleDataMessage(
+		e: MessageEvent,
+		reliable: boolean,
+	): void;
+
 	/** Called by the Negotiator when the DataChannel is ready. */
 	override _initializeDataChannel(dc: RTCDataChannel): void {
 		this.dataChannel = dc;
 
 		this.dataChannel.onopen = () => {
-			logger.log(`DC#${this.connectionId} dc connection success`);
-			this._open = true;
-			this.emit("open");
+			logger.log(
+				`DC#${this.connectionId} dc connection open. Waiting for reliable dc connection open...`,
+			);
+
+			// This "reliableDataChannel" is a custom hack to be able to have two data channels as PeerJS only supports one.
+			// Instead of having this "reliableDataChannel", an improvement could be allowing any number of data channels to be defined in options of peer.connect().
+			// It would allow user to define multiple data channels to be instantiated after the primary data channel is opened and negotiated.
+			// -
+			// Example:
+			// const connection = peer.connect(peerId, {
+			// 		reliable: false,
+			// 		metadata: connectMetadata,
+			// 		label: `connection_${this.connectionCounter}`,
+			// 		dataChannels: [
+			// 			{
+			// 				label: "reliable",
+			// 				dataChannelOptions: {
+			// 					ordered: true,
+			//				},
+			//			},
+			//			...
+			//		],
+			//	});
+			// });
+			this.reliableDataChannel = this.peerConnection.createDataChannel(
+				this.connectionId + "__reliable",
+				{
+					ordered: true,
+					negotiated: true,
+					id: this.dataChannel.id + 1,
+				},
+			);
+			this.reliableDataChannel.binaryType = this.dataChannel.binaryType;
+
+			this.reliableDataChannel.onmessage = (e) => {
+				logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
+				this._handleDataMessage(e, true);
+			};
+
+			this.reliableDataChannel.onopen = () => {
+				logger.log(`DC#${this.connectionId} reliable dc connection open`);
+				this._open = true;
+				this.emit("open");
+			};
+			this.reliableDataChannel.onclose = () => {
+				logger.log(`DC#${this.connectionId} reliable dc connection closed`);
+				if (this._open) {
+					this.close();
+				}
+			};
 		};
 
 		this.dataChannel.onmessage = (e) => {
 			logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
-			// this._handleDataMessage(e);
+			this._handleDataMessage(e, false);
 		};
 
 		this.dataChannel.onclose = () => {
@@ -115,6 +168,13 @@ export abstract class DataConnection extends BaseConnection<
 			this.dataChannel = null;
 		}
 
+		if (this.reliableDataChannel) {
+			this.reliableDataChannel.onopen = null;
+			this.reliableDataChannel.onmessage = null;
+			this.reliableDataChannel.onclose = null;
+			this.reliableDataChannel = null;
+		}
+
 		if (!this.open) {
 			return;
 		}
@@ -124,10 +184,14 @@ export abstract class DataConnection extends BaseConnection<
 		super.emit("close");
 	}
 
-	protected abstract _send(data: any, chunked: boolean): void | Promise<void>;
+	protected abstract _send(
+		data: any,
+		chunked: boolean,
+		reliable: boolean,
+	): void | Promise<void>;
 
 	/** Allows user to send data. */
-	public send(data: any, chunked = false) {
+	public send(data: any, chunked = false, reliable = false) {
 		if (!this.open) {
 			this.emitError(
 				DataConnectionErrorType.NotOpenYet,
@@ -135,7 +199,7 @@ export abstract class DataConnection extends BaseConnection<
 			);
 			return;
 		}
-		return this._send(data, chunked);
+		return this._send(data, chunked, reliable);
 	}
 
 	async handleMessage(message: ServerMessage) {
