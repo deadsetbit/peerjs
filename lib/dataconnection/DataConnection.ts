@@ -34,6 +34,13 @@ export abstract class DataConnection extends BaseConnection<
 > {
 	protected static readonly ID_PREFIX = "dc_";
 	protected static readonly MAX_BUFFERED_AMOUNT = 8 * 1024 * 1024;
+	/**
+	 * Both peers must create the reliable channel on the same stream id. The primary channel is the
+	 * first on the connection, so it holds stream id 0 or 1 and 2 is always free. WebKit <= 15 reports
+	 * null for the id of a channel it created, so the id cannot be derived from the primary channel's.
+	 * Older versions of this fork used the primary channel's id + 1, which is also 2 in practice.
+	 */
+	private static readonly RELIABLE_CHANNEL_ID = 2;
 
 	private _negotiator: Negotiator<DataConnectionEvents, this>;
 	abstract readonly serialization: string;
@@ -73,6 +80,10 @@ export abstract class DataConnection extends BaseConnection<
 		this.dataChannel = dc;
 
 		this.dataChannel.onopen = () => {
+			if (this.reliableDataChannel) {
+				return;
+			}
+
 			logger.log(
 				`DC#${this.connectionId} dc connection open. Waiting for reliable dc connection open...`,
 			);
@@ -97,14 +108,24 @@ export abstract class DataConnection extends BaseConnection<
 			//		],
 			//	});
 			// });
-			this.reliableDataChannel = this.peerConnection.createDataChannel(
-				this.connectionId + "__reliable",
-				{
-					ordered: true,
-					negotiated: true,
-					id: this.dataChannel.id + 1,
-				},
-			);
+			try {
+				this.reliableDataChannel = this.peerConnection.createDataChannel(
+					this.connectionId + "__reliable",
+					{
+						ordered: true,
+						negotiated: true,
+						id: DataConnection.RELIABLE_CHANNEL_ID,
+					},
+				);
+			} catch (err) {
+				// A string, because PeerError loses the name and message of a DOMException.
+				this.emitError(
+					DataConnectionErrorType.ReliableChannelFailed,
+					`Creating the reliable data channel failed: ${err} (primary channel id: ${this.dataChannel.id}, state: ${this.dataChannel.readyState})`,
+				);
+				this.close();
+				return;
+			}
 			this.reliableDataChannel.binaryType = this.dataChannel.binaryType;
 
 			this.reliableDataChannel.onmessage = (e) => {
