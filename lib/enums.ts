@@ -68,6 +68,7 @@ export enum BaseConnectionErrorType {
 export enum DataConnectionErrorType {
 	NotOpenYet = "not-open-yet",
 	MessageToBig = "message-too-big",
+	ReliableChannelFailed = "reliable-channel-failed",
 }
 
 export enum SerializationType {
