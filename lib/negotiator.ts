@@ -30,6 +30,13 @@ export class Negotiator<
 			this._addTracksToConnection(options._stream, peerConnection);
 		}
 
+		if (
+			this.connection.type === ConnectionType.Data &&
+			!(<DataConnection>(<unknown>this.connection))._createReliableDataChannel()
+		) {
+			return;
+		}
+
 		// What do we need to do now?
 		if (options.originator) {
 			const dataConnection = this.connection;
