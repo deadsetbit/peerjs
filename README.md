@@ -6,6 +6,9 @@
 
 PeerJS provides a complete, configurable, and easy-to-use peer-to-peer API built on top of WebRTC, supporting both data channels and media streams.
 
+> [!NOTE]
+> This is Gaming Couch's fork, published to GitHub Packages as `@deadsetbit/peerjs`. Before publishing a version, read [Publishing the Gaming Couch fork](#publishing-the-gaming-couch-fork).
+
 ## Live Example
 
 Here's an example application that uses both media and data connections: https://glitch.com/~peerjs-video. The example also uses its own [PeerServer](https://github.com/peers/peerjs-server).
@@ -116,6 +119,35 @@ peer.on("call", (call) => {
 ```bash
 npm test
 ```
+
+## Publishing the Gaming Couch fork
+
+The Gaming Couch client installs this fork from GitHub Packages and pins one exact version. A version isn't live until the client bumps to it, but a published version can't be replaced, so every one is built from a reviewed `master`.
+
+**Token.** Publishing needs a GitHub personal access token (classic) with `write:packages`. The token in the client's `client/.npmrc` is an install token with only `read:packages`, so it can't publish. Put yours in this checkout's `.npmrc`, which git ignores:
+
+```
+//npm.pkg.github.com/:_authToken=<token with write:packages>
+```
+
+**Versions.** Fork versions are `1.5.4-fork.reliable-data-channel.N`. The pull request that changes the code also bumps `version` in `package.json` to the next `N`.
+
+**Order:**
+
+1. **Test the branch in the client from a tarball.** Here, run `npm pack`. In the client, install it with `npm install --no-save <path to the .tgz>` and run the client's checks. A tarball holds the real package contents, so a missing file shows up here and not after publishing.
+2. **Get the fork pull request reviewed, and merge it** into `master`.
+3. **Publish from a clean `master`:**
+
+   ```bash
+   git switch master && git pull --ff-only && git status --short
+   npm publish --dry-run --tag reliable-data-channel
+   npm publish --tag reliable-data-channel
+   npm dist-tag add @deadsetbit/peerjs@<version> latest
+   ```
+
+   `git status --short` must print nothing. The dry run must list all 12 files under `dist/`: `bundler.cjs`, `bundler.mjs`, `peerjs.js`, `peerjs.min.js`, `serializer.msgpack.mjs` and `types.d.ts`, each with its `.map`. `prepublishOnly` runs `npm run build`, which clears `.parcel-cache` and `dist` first, so don't skip it with `--ignore-scripts`. npm needs a `--tag` for a prerelease version; `latest` then moves to the new version so `npm view` and `npm outdated` report it.
+
+4. **Bump the client** to the exact version, with no `^` or `~`: `"@deadsetbit/peerjs": "<version>"` in `client/package.json`. Then run `npm install` there and open the client pull request.
 
 ## Browser support
 
