@@ -35,9 +35,9 @@ export abstract class DataConnection extends BaseConnection<
 	protected static readonly ID_PREFIX = "dc_";
 	protected static readonly MAX_BUFFERED_AMOUNT = 8 * 1024 * 1024;
 	/**
-	 * Both peers must create the reliable channel on the same stream id. The primary channel is the
-	 * first on the connection, so it holds stream id 0 or 1 and 2 is always free. WebKit <= 15 reports
-	 * null for the id of a channel it created, so the id cannot be derived from the primary channel's.
+	 * Both peers must create the reliable channel on the same stream id. It is created first and reserves
+	 * id 2, and the primary channel then takes 0 or 1. WebKit <= 15 reports null for the id of a channel
+	 * it created, so the id cannot be derived from the primary channel's.
 	 * Older versions of this fork used the primary channel's id + 1, which is also 2 in practice.
 	 */
 	private static readonly RELIABLE_CHANNEL_ID = 2;
@@ -46,6 +46,7 @@ export abstract class DataConnection extends BaseConnection<
 	abstract readonly serialization: string;
 	readonly reliable: boolean;
 	protected reliableDataChannel: RTCDataChannel;
+	private _reliableMessagesBeforeOpen: MessageEvent[] = [];
 
 	public get type() {
 		return ConnectionType.Data;
@@ -75,75 +76,109 @@ export abstract class DataConnection extends BaseConnection<
 		reliable: boolean,
 	): void;
 
+	/**
+	 * Called by the Negotiator before anything is negotiated. A negotiated channel has no handshake, so
+	 * the remote peer can send on it as soon as the transport is up, and a browser silently drops what
+	 * arrives on a stream that has no channel yet. Creating it here means it is there first, on both peers.
+	 *
+	 * @returns false when the channel could not be created and the connection is about to close.
+	 */
+	_createReliableDataChannel(): boolean {
+		// This "reliableDataChannel" is a custom hack to be able to have two data channels as PeerJS only supports one.
+		// Instead of having this "reliableDataChannel", an improvement could be allowing any number of data channels to be defined in options of peer.connect().
+		// It would allow user to define multiple data channels, each created up front like this one.
+		// -
+		// Example:
+		// const connection = peer.connect(peerId, {
+		// 		reliable: false,
+		// 		metadata: connectMetadata,
+		// 		label: `connection_${this.connectionCounter}`,
+		// 		dataChannels: [
+		// 			{
+		// 				label: "reliable",
+		// 				dataChannelOptions: {
+		// 					ordered: true,
+		//				},
+		//			},
+		//			...
+		//		],
+		//	});
+		// });
+		try {
+			this.reliableDataChannel = this.peerConnection.createDataChannel(
+				this.connectionId + "__reliable",
+				{
+					ordered: true,
+					negotiated: true,
+					id: DataConnection.RELIABLE_CHANNEL_ID,
+				},
+			);
+		} catch (err) {
+			// Later, because this runs in the constructor and nobody can be listening for the error yet.
+			queueMicrotask(() => {
+				// A string, because PeerError loses the name and message of a DOMException.
+				this.emitError(
+					DataConnectionErrorType.ReliableChannelFailed,
+					`Creating the reliable data channel failed: ${err}`,
+				);
+				this.close();
+			});
+			return false;
+		}
+		this.reliableDataChannel.binaryType = "arraybuffer";
+
+		this.reliableDataChannel.onmessage = (e) => {
+			logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
+			if (!this._open) {
+				this._reliableMessagesBeforeOpen.push(e);
+				return;
+			}
+			this._handleDataMessage(e, true);
+		};
+
+		this.reliableDataChannel.onopen = () => {
+			logger.log(`DC#${this.connectionId} reliable dc connection open`);
+			this._openWhenBothChannelsAreOpen();
+		};
+		this.reliableDataChannel.onclose = () => {
+			logger.log(`DC#${this.connectionId} reliable dc connection closed`);
+			if (this._open) {
+				this.close();
+			}
+		};
+
+		return true;
+	}
+
+	/**
+	 * The channels open in either order: on the answering peer the primary channel does not even exist
+	 * until after the reliable one has opened. Users may send on either channel from `open`, and on the
+	 * answering peer they only start listening for `data` from `open`, so messages wait for it.
+	 */
+	private _openWhenBothChannelsAreOpen(): void {
+		if (
+			this._open ||
+			this.dataChannel?.readyState !== "open" ||
+			this.reliableDataChannel?.readyState !== "open"
+		) {
+			return;
+		}
+
+		this._open = true;
+		this.emit("open");
+
+		while (this._open && this._reliableMessagesBeforeOpen.length > 0) {
+			this._handleDataMessage(this._reliableMessagesBeforeOpen.shift(), true);
+		}
+	}
+
 	/** Called by the Negotiator when the DataChannel is ready. */
 	override _initializeDataChannel(dc: RTCDataChannel): void {
 		this.dataChannel = dc;
 
 		this.dataChannel.onopen = () => {
-			if (this.reliableDataChannel) {
-				return;
-			}
-
-			logger.log(
-				`DC#${this.connectionId} dc connection open. Waiting for reliable dc connection open...`,
-			);
-
-			// This "reliableDataChannel" is a custom hack to be able to have two data channels as PeerJS only supports one.
-			// Instead of having this "reliableDataChannel", an improvement could be allowing any number of data channels to be defined in options of peer.connect().
-			// It would allow user to define multiple data channels to be instantiated after the primary data channel is opened and negotiated.
-			// -
-			// Example:
-			// const connection = peer.connect(peerId, {
-			// 		reliable: false,
-			// 		metadata: connectMetadata,
-			// 		label: `connection_${this.connectionCounter}`,
-			// 		dataChannels: [
-			// 			{
-			// 				label: "reliable",
-			// 				dataChannelOptions: {
-			// 					ordered: true,
-			//				},
-			//			},
-			//			...
-			//		],
-			//	});
-			// });
-			try {
-				this.reliableDataChannel = this.peerConnection.createDataChannel(
-					this.connectionId + "__reliable",
-					{
-						ordered: true,
-						negotiated: true,
-						id: DataConnection.RELIABLE_CHANNEL_ID,
-					},
-				);
-			} catch (err) {
-				// A string, because PeerError loses the name and message of a DOMException.
-				this.emitError(
-					DataConnectionErrorType.ReliableChannelFailed,
-					`Creating the reliable data channel failed: ${err} (primary channel id: ${this.dataChannel.id}, state: ${this.dataChannel.readyState})`,
-				);
-				this.close();
-				return;
-			}
-			this.reliableDataChannel.binaryType = this.dataChannel.binaryType;
-
-			this.reliableDataChannel.onmessage = (e) => {
-				logger.log(`DC#${this.connectionId} dc onmessage:`, e.data);
-				this._handleDataMessage(e, true);
-			};
-
-			this.reliableDataChannel.onopen = () => {
-				logger.log(`DC#${this.connectionId} reliable dc connection open`);
-				this._open = true;
-				this.emit("open");
-			};
-			this.reliableDataChannel.onclose = () => {
-				logger.log(`DC#${this.connectionId} reliable dc connection closed`);
-				if (this._open) {
-					this.close();
-				}
-			};
+			logger.log(`DC#${this.connectionId} dc connection open`);
+			this._openWhenBothChannelsAreOpen();
 		};
 
 		this.dataChannel.onmessage = (e) => {
@@ -195,6 +230,7 @@ export abstract class DataConnection extends BaseConnection<
 			this.reliableDataChannel.onclose = null;
 			this.reliableDataChannel = null;
 		}
+		this._reliableMessagesBeforeOpen = [];
 
 		if (!this.open) {
 			return;
