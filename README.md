@@ -134,7 +134,7 @@ The Gaming Couch client installs this fork from GitHub Packages and pins one exa
 
 **Order:**
 
-1. **Test the branch in the client from a tarball.** Here, run `npm pack`. In the client, install it with `npm install --no-save <path to the .tgz>` and run the client's checks. A tarball holds the real package contents, so a missing file shows up here and not after publishing.
+1. **Test the branch in the client from a tarball.** Here, run `npm run build && npm pack`. `npm pack` doesn't build, so on its own it packs whatever `dist/` last held, perhaps another branch's. In the client, install it with `npm install --no-save <path to the .tgz>` and run the client's checks. A tarball holds the real package contents, so a missing file shows up here and not after publishing.
 2. **Get the fork pull request reviewed, and merge it** into `master`.
 3. **Publish from a clean `master`:**
 
